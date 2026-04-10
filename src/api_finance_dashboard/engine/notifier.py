@@ -2,7 +2,13 @@
 
 import platform
 import subprocess
+import sys
 from decimal import Decimal
+
+# Hide console window when spawning subprocesses on Windows
+_SUBPROCESS_FLAGS = (
+    subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+)
 
 from api_finance_dashboard.data.models import SiteResult, SiteStatus
 
@@ -34,6 +40,7 @@ def _notify_windows(title: str, message: str) -> None:
         subprocess.run(
             ["powershell", "-Command", ps_script],
             capture_output=True, timeout=10,
+            creationflags=_SUBPROCESS_FLAGS,
         )
     except Exception:
         # Fallback: use plyer
@@ -53,6 +60,7 @@ def _notify_macos(title: str, message: str) -> None:
         subprocess.run(
             ["osascript", "-e", script],
             capture_output=True, timeout=10,
+            creationflags=_SUBPROCESS_FLAGS,
         )
     except Exception:
         pass

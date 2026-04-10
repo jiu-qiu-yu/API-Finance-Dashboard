@@ -1,0 +1,79 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[dev]
+          pip install Pillow
+
+      - name: Extract version from pyproject.toml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python -c "import re; print(re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()).group(1))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build with PyInstaller
+        run: |
+          python scripts/build.py --skip-installer
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Build installer
+        run: |
+          $env:PATH = "C:\Program Files (x86)\Inno Setup 6;$env:PATH"
+          iscc /DMyAppVersion=${{ steps.version.outputs.version }} installer.iss
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: API Finance Dashboard v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/API-Finance-Dashboard-Setup-${{ steps.version.outputs.version }}.exe
+          body: |
+            ## API Finance Dashboard v${{ steps.version.outputs.version }}
+
+            ### 安装说明
+            1. 下载 `API-Finance-Dashboard-Setup-${{ steps.version.outputs.version }}.exe`
+            2. 双击运行安装程序
+            3. 按照向导完成安装
+            4. 从开始菜单或桌面快捷方式启动应用
+
+            ### 系统要求
+            - Windows 10/11 (64-bit)
+            - Google Chrome 或 Microsoft Edge 浏览器
+
+            > ⚠️ Windows Defender SmartScreen 可能会显示警告，点击"更多信息"→"仍要运行"即可。

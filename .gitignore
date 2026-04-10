@@ -32,3 +32,9 @@ htmlcov/
 # Environment
 .env
 .env.local
+
+# PyInstaller
+*.spec.bak
+
+# Inno Setup output
+Output/

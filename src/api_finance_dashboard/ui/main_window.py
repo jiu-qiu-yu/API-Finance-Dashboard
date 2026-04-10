@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from api_finance_dashboard.resources import get_resource_path
 from api_finance_dashboard.data.config_repository import ConfigRepository
 from api_finance_dashboard.data.database import init_database
 from api_finance_dashboard.data.models import (
@@ -123,15 +124,11 @@ class MainWindow(QMainWindow):
 
     def _set_window_icon(self) -> None:
         """Set window icon from brand logo (Task 3.1)."""
-        import os
+        # Try .ico first (multi-size, best for taskbar/title bar)
+        ico_path = get_resource_path("logo/logo.ico")
+        png_path = get_resource_path("logo/logo.png")
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)),
-        )))
-        webp_path = os.path.join(base_dir, "logo", "logo.webp")
-        png_path = os.path.join(base_dir, "logo", "logo.png")
-
-        icon = QIcon(webp_path)
+        icon = QIcon(ico_path)
         if icon.isNull():
             icon = QIcon(png_path)
         if not icon.isNull():
@@ -145,16 +142,8 @@ class MainWindow(QMainWindow):
         title_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_row.setSpacing(Spacing.SM)
 
-        import os
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)),
-        )))
-        logo_path = os.path.join(base_dir, "logo", "logo.webp")
-        fallback_path = os.path.join(base_dir, "logo", "logo.png")
-
+        logo_path = get_resource_path("logo/logo.png")
         pixmap = QPixmap(logo_path)
-        if pixmap.isNull():
-            pixmap = QPixmap(fallback_path)
         if not pixmap.isNull():
             logo_label = QLabel()
             logo_label.setPixmap(
