@@ -38,6 +38,30 @@ from api_finance_dashboard.ui.styles import (
 )
 
 
+# URL label and placeholder hints per panel type
+_PANEL_URL_HINTS: dict[str, dict[str, str]] = {
+    "new-api": {
+        "url_label": "使用日志：",
+        "url_placeholder": "https://example.com/console/log",
+        "dashboard_label": "数据看板：",
+        "dashboard_placeholder": "https://example.com/console",
+    },
+    "sub2api": {
+        "url_label": "仪表盘：",
+        "url_placeholder": "https://example.com/dashboard（消耗与余额均从此页获取）",
+        "dashboard_label": "数据看板地址：",
+        "dashboard_placeholder": "Sub2API 无需填写，留空即可",
+    },
+}
+
+_DEFAULT_URL_HINTS: dict[str, str] = {
+    "url_label": "使用日志地址：",
+    "url_placeholder": "https://panel.example.com/log",
+    "dashboard_label": "数据看板地址：",
+    "dashboard_placeholder": "https://panel.example.com/dashboard",
+}
+
+
 class _TestScrapeWorker(QThread):
     """Background worker for test scraping."""
 
@@ -107,27 +131,27 @@ class SiteEditForm(QWidget):
         self.type_combo.addItem("上游", "upstream")
         form.addRow("类型：", self.type_combo)
 
-        self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("https://panel.example.com/log")
-        form.addRow("使用日志地址：", self.url_input)
-
-        self.dashboard_url_input = QLineEdit()
-        self.dashboard_url_input.setPlaceholderText("https://panel.example.com/dashboard（仅上游需要）")
-        self._dashboard_url_label = QLabel("数据看板地址：")
-        form.addRow(self._dashboard_url_label, self.dashboard_url_input)
-
-        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
-        self._on_type_changed()
-
         self.panel_combo = QComboBox()
+        self.panel_combo.blockSignals(True)
         for key, preset in PANEL_PRESETS.items():
             if preset.github_repo:
                 label = f"{preset.name} ({preset.github_repo})"
             else:
                 label = f"{preset.name} (自定义)"
             self.panel_combo.addItem(label, key)
-        self.panel_combo.currentIndexChanged.connect(self._on_panel_changed)
+        self.panel_combo.blockSignals(False)
         form.addRow("面板类型：", self.panel_combo)
+
+        self.url_input = QLineEdit()
+        self._url_label = QLabel("使用日志地址：")
+        form.addRow(self._url_label, self.url_input)
+
+        self.dashboard_url_input = QLineEdit()
+        self._dashboard_url_label = QLabel("数据看板地址：")
+        form.addRow(self._dashboard_url_label, self.dashboard_url_input)
+
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        self._on_type_changed()
 
         self.css_input = QLineEdit()
         self.css_input.setPlaceholderText("CSS 选择器（可选）")
@@ -136,6 +160,10 @@ class SiteEditForm(QWidget):
         self.regex_input = QLineEdit()
         self.regex_input.setPlaceholderText("正则表达式（可选）")
         form.addRow("正则表达式：", self.regex_input)
+
+        # Connect panel change signal after all dependent widgets exist
+        self.panel_combo.currentIndexChanged.connect(self._on_panel_changed)
+        self._on_panel_changed(0)
 
         self.currency_combo = QComboBox()
         self.currency_combo.addItem("USD ($)", "USD")
@@ -180,8 +208,46 @@ class SiteEditForm(QWidget):
     def _on_panel_changed(self, _index: int) -> None:
         key = self.panel_combo.currentData()
         preset = PANEL_PRESETS.get(key)
+        # Show preset selectors as placeholder hint only — NOT as actual value.
+        # Setting the actual text would cause custom_selectors to override both
+        # consumption AND balance selectors during scraping, breaking balance extraction.
         if preset and key != "custom" and preset.consumption_selectors:
-            self.css_input.setText(", ".join(preset.consumption_selectors))
+            self.css_input.setPlaceholderText(
+                ", ".join(preset.consumption_selectors)
+            )
+        else:
+            self.css_input.setPlaceholderText("CSS 选择器（可选，留空使用内置规则）")
+        # Clear any previously filled value so preset defaults take effect
+        self.css_input.clear()
+
+        # Update URL labels and placeholders based on panel type
+        hints = _PANEL_URL_HINTS.get(key, _DEFAULT_URL_HINTS)
+        self._url_label.setText(hints["url_label"])
+        self.url_input.setPlaceholderText(hints["url_placeholder"])
+        self._dashboard_url_label.setText(hints["dashboard_label"])
+        self.dashboard_url_input.setPlaceholderText(hints["dashboard_placeholder"])
+
+    def clear_form(self) -> None:
+        """Clear all fields and reset to sensible defaults."""
+        self.name_input.clear()
+        self.url_input.clear()
+        self.dashboard_url_input.clear()
+        self.css_input.clear()
+        self.regex_input.clear()
+        # Default panel type: new-api
+        idx = self.panel_combo.findData("new-api")
+        if idx >= 0:
+            self.panel_combo.setCurrentIndex(idx)
+        # Default currency: USD
+        idx = self.currency_combo.findData("USD")
+        if idx >= 0:
+            self.currency_combo.setCurrentIndex(idx)
+        # Default threshold: 10.00
+        self.threshold_input.setValue(10.00)
+        # Default type: upstream (most common for new sites)
+        idx = self.type_combo.findData("upstream")
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
 
     def get_data(self) -> dict | None:
         name = self.name_input.text().strip()
@@ -213,7 +279,7 @@ class SettingsPanel(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("设置")
+        self.setWindowTitle("配置")
         self.setMinimumSize(700, 500)
         self._site_repo = site_repo
         self._config_repo = config_repo
@@ -427,27 +493,34 @@ class SettingsPanel(QDialog):
         )
 
     def _add_site(self) -> None:
-        data = self._form.get_data()
-        if data:
-            self._site_repo.create(**data)
-            self._refresh_site_list()
+        # Clear form and deselect list for a fresh new-site entry
+        self._site_list.setCurrentRow(-1)
+        self._form.clear_form()
+        self._form.name_input.setFocus()
 
     def _save_site(self) -> None:
         current = self._site_list.currentItem()
+        data = self._form.get_data()
+        if not data:
+            return
         if not current:
-            self._add_site()
+            # No selection — create a new site
+            self._site_repo.create(**data)
+            self._refresh_site_list()
+            # Select the newly created site (last in list)
+            if self._site_list.count() > 0:
+                self._site_list.setCurrentRow(self._site_list.count() - 1)
             return
         site_id = current.data(Qt.ItemDataRole.UserRole)
-        data = self._form.get_data()
-        if data:
-            self._site_repo.update(site_id, **data)
-            self._refresh_site_list()
+        self._site_repo.update(site_id, **data)
+        self._refresh_site_list()
 
     def _delete_site(self) -> None:
         current = self._site_list.currentItem()
         if not current:
             return
         site_id = current.data(Qt.ItemDataRole.UserRole)
+        deleted_row = self._site_list.currentRow()
         reply = QMessageBox.question(
             self, "确认删除",
             f"确定要删除站点 '{current.text()}' 吗？",
@@ -455,6 +528,17 @@ class SettingsPanel(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             self._site_repo.delete(site_id)
             self._refresh_site_list()
+            # Auto-select adjacent item after deletion
+            total = self._site_list.count()
+            if total == 0:
+                # List is empty — clear the form
+                self._form.clear_form()
+            elif deleted_row > 0:
+                # Select previous item
+                self._site_list.setCurrentRow(deleted_row - 1)
+            else:
+                # Deleted first item — select new first
+                self._site_list.setCurrentRow(0)
 
     def _detect_browser(self) -> None:
         browsers = scan_installed_browsers()

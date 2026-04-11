@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "api-finance-dashboard"
-version = "0.1.0"
+version = "0.2.0"
 description = "API站长自动化财务看板 - 基于RPA的本地轻量级监控软件"
 requires-python = ">=3.10"
 dependencies = [

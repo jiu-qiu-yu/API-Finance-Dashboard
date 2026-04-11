@@ -7,13 +7,13 @@ from api_finance_dashboard.data.models import Currency
 
 # Patterns for extracting monetary values
 _MONEY_PATTERN = re.compile(
-    r'[￥¥$]\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)'   # ￥123.45 or $123.45
-    r'|(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:USD|CNY|元|美元|人民币)',  # 123.45 USD
+    r'[￥¥$]\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,6})?)'   # ￥123.45 or $0.0015
+    r'|(\d{1,3}(?:,\d{3})*(?:\.\d{1,6})?)\s*(?:USD|CNY|元|美元|人民币)',  # 123.45 USD
     re.IGNORECASE,
 )
 
 _BARE_NUMBER_PATTERN = re.compile(
-    r'(\d{1,3}(?:,\d{3})*\.\d{1,2})',
+    r'(\d{1,3}(?:,\d{3})*\.\d{1,6})',
 )
 
 

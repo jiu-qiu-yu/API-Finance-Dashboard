@@ -4,6 +4,14 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class PreScrapeAction:
+    """Defines a page interaction to execute before data extraction."""
+    action_type: str  # "click", "select_option", or "wait"
+    selector: str  # CSS selector to target the element
+    value: str | None = None  # Option value for select_option, or ms for wait
+
+
+@dataclass(frozen=True)
 class AnchorRule:
     """Defines how to locate a value using DOM anchor text search (Tier 2)."""
     target: str  # "consumption" or "balance"
@@ -24,6 +32,8 @@ class PanelPreset:
     balance_keywords: tuple[str, ...]
     # Anchor rules for Tier 2 scraping
     anchor_rules: tuple[AnchorRule, ...] = field(default_factory=tuple)
+    # Pre-scrape page interactions (executed before data extraction)
+    pre_scrape_actions: tuple[PreScrapeAction, ...] = field(default_factory=tuple)
 
 
 PANEL_PRESETS: dict[str, PanelPreset] = {
@@ -58,29 +68,26 @@ PANEL_PRESETS: dict[str, PanelPreset] = {
         name="Sub2API",
         github_repo="Wei-Shaw/sub2api",
         consumption_selectors=(
-            ".text-green-600",
-            ".usage-card .value",
-            ".stat-item .consumption",
-            ".dashboard-stat .amount",
+            "p.text-xl span.text-purple-600[title]",
+            'span.text-purple-600[title="实际"]',
         ),
         balance_selectors=(
-            ".text-emerald-600",
-            ".balance-card .value",
-            ".stat-item .balance",
-            ".quota-display .remaining",
+            "p.text-emerald-600.text-xl",
+            "p.text-xl.font-bold.text-emerald-600",
         ),
-        consumption_keywords=("总消费", "今日消耗", "消耗", "Usage", "Cost", "consumed", "已用"),
-        balance_keywords=("余额", "剩余", "Balance", "Remaining", "Points", "点数", "可用"),
+        consumption_keywords=("今日消费", "Today Cost", "消费", "Cost"),
+        balance_keywords=("余额", "Balance", "可用"),
         anchor_rules=(
             AnchorRule(
                 target="consumption",
-                anchor_texts=("总消费", "今日消耗", "Today Cost", "Usage", "已用额度"),
+                anchor_texts=("今日消费", "Today Cost"),
             ),
             AnchorRule(
                 target="balance",
-                anchor_texts=("余额", "Balance", "Remaining", "剩余点数", "可用"),
+                anchor_texts=("余额", "Balance", "可用"),
             ),
         ),
+        # No pre_scrape_actions — dashboard page shows today's data directly
     ),
     "cap": PanelPreset(
         name="CAP (CLIProxyAPI)",

@@ -1,5 +1,6 @@
 """Scraping engine that extracts monetary values from web pages."""
 
+import logging
 from decimal import Decimal
 
 from playwright.async_api import Page
@@ -7,10 +8,81 @@ from playwright.async_api import Page
 from api_finance_dashboard.data.models import Currency, SiteConfig, SiteResult, SiteStatus, SiteType
 from api_finance_dashboard.engine.browser_engine import BrowserEngine
 from api_finance_dashboard.engine.data_cleaner import clean_monetary_value, extract_values_near_keywords
-from api_finance_dashboard.engine.presets import AnchorRule, get_preset
+from api_finance_dashboard.engine.presets import AnchorRule, PreScrapeAction, get_preset
+
+logger = logging.getLogger(__name__)
 
 # Maximum valid monetary value for format validation
 _MAX_VALID_VALUE = Decimal("1000000")
+
+# Timeout for individual pre-scrape actions (ms)
+_PRE_SCRAPE_ACTION_TIMEOUT = 5000
+
+
+async def _execute_pre_scrape_actions(
+    page: Page, actions: tuple[PreScrapeAction, ...]
+) -> None:
+    """Execute pre-scrape page interactions before data extraction.
+
+    Each action is executed in order. Failures are logged and skipped
+    to allow data extraction to proceed with the current page state.
+    """
+    for action in actions:
+        try:
+            if action.action_type == "click":
+                element = await page.wait_for_selector(
+                    action.selector, timeout=_PRE_SCRAPE_ACTION_TIMEOUT
+                )
+                if element:
+                    await element.click()
+                    await page.wait_for_timeout(500)
+                else:
+                    logger.warning(
+                        "Pre-scrape click: selector '%s' not found", action.selector
+                    )
+            elif action.action_type == "select_option":
+                element = await page.wait_for_selector(
+                    action.selector, timeout=_PRE_SCRAPE_ACTION_TIMEOUT
+                )
+                if element and action.value is not None:
+                    await element.select_option(action.value)
+                    await page.wait_for_timeout(500)
+                else:
+                    logger.warning(
+                        "Pre-scrape select_option: selector '%s' not found or no value",
+                        action.selector,
+                    )
+            elif action.action_type == "text_click":
+                # Parse comma-separated candidate texts from selector field
+                candidates = [t.strip() for t in action.selector.split(",") if t.strip()]
+                clicked = False
+                for text in candidates:
+                    try:
+                        locator = page.get_by_text(text, exact=True)
+                        if await locator.count() > 0:
+                            await locator.first.click()
+                            await page.wait_for_timeout(500)
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
+                if not clicked:
+                    logger.warning(
+                        "Pre-scrape text_click: no match found for candidates %s",
+                        candidates,
+                    )
+            elif action.action_type == "wait":
+                wait_ms = int(action.value) if action.value else 1000
+                await page.wait_for_timeout(wait_ms)
+            else:
+                logger.warning("Unknown pre-scrape action type: '%s'", action.action_type)
+        except Exception:
+            logger.warning(
+                "Pre-scrape action failed: type='%s', selector='%s'",
+                action.action_type,
+                action.selector,
+                exc_info=True,
+            )
 
 
 async def _extract_by_css_selectors(
@@ -132,14 +204,14 @@ async def _extract_by_keywords(
 
 
 def _validate_value(value: Decimal) -> bool:
-    """Validate monetary value: non-negative, ≤2 decimal places, within range."""
+    """Validate monetary value: non-negative, ≤6 decimal places, within range."""
     if value < 0:
         return False
     if value > _MAX_VALID_VALUE:
         return False
-    # Check decimal places
+    # Check decimal places (up to 6 for API billing precision, e.g. $0.0015)
     sign, digits, exponent = value.as_tuple()
-    if exponent < -2:
+    if exponent < -6:
         return False
     return True
 
@@ -212,6 +284,10 @@ class ScrapingEngine:
                 )
 
             preset = get_preset(site.panel_type)
+
+            # Execute pre-scrape page interactions (e.g., select time range)
+            if preset.pre_scrape_actions:
+                await _execute_pre_scrape_actions(page, preset.pre_scrape_actions)
 
             # Build effective selectors
             custom_selectors = tuple(
@@ -300,6 +376,11 @@ class ScrapingEngine:
                 }
 
             preset = get_preset(panel_type)
+
+            # Execute pre-scrape page interactions (e.g., select time range)
+            if preset.pre_scrape_actions:
+                await _execute_pre_scrape_actions(page, preset.pre_scrape_actions)
+
             custom_selectors = tuple(
                 s.strip() for s in (css_selector or "").split(",") if s.strip()
             )

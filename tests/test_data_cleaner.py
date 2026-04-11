@@ -64,6 +64,31 @@ class TestCleanMonetaryValue:
         result = clean_monetary_value("Balance: $42.00 remaining")
         assert result == (Decimal("42.00"), Currency.USD)
 
+    def test_four_decimal_dollar(self):
+        """API billing precision: $0.0015 should parse correctly."""
+        result = clean_monetary_value("$0.0015")
+        assert result == (Decimal("0.0015"), Currency.USD)
+
+    def test_six_decimal_dollar(self):
+        """High-precision API billing: $0.000123 should parse correctly."""
+        result = clean_monetary_value("$0.000123")
+        assert result == (Decimal("0.000123"), Currency.USD)
+
+    def test_four_decimal_with_text(self):
+        result = clean_monetary_value("今日消费: $0.0015")
+        assert result == (Decimal("0.0015"), Currency.USD)
+
+    def test_bare_four_decimal(self):
+        result = clean_monetary_value("0.0015")
+        assert result == (Decimal("0.0015"), Currency.USD)
+
+    def test_seven_decimal_truncated(self):
+        """7+ decimals should not match (regex caps at 6)."""
+        result = clean_monetary_value("$0.0000001")
+        # Pattern matches $0.000000 (6 decimals), the trailing 1 is left out
+        assert result is not None
+        assert result[0] == Decimal("0.000000")
+
 
 class TestExtractValuesNearKeywords:
     def test_finds_value_near_keyword(self):
